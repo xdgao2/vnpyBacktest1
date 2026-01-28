@@ -3,19 +3,22 @@ import numpy as np
 from datetime import datetime
 from vnpy_ctastrategy import CtaTemplate, StopOrder, TickData, BarData
 from vnpy.trader.constant import Interval, Direction, Offset
-from vnpy.trader.utility import ArrayManager, BarGenerator
+from vnpy.trader.utility import ArrayManager
 import dolphindb as ddb
 
 class ModularDoubleMaStrategy(CtaTemplate):
-    """模块化双均线策略"""
+    """模块化双均线策略 - 1分钟线模拟多周期过滤"""
     
     # 参数定义
     init_capital = 100000
-    fast_window = 5
-    slow_window = 10
-    filter_fast = 5
-    filter_mid = 10
-    filter_slow = 20
+    fast_window = 5      # 1分钟快线
+    slow_window = 10     # 1分钟慢线
+    
+    filter_n = 5         # 模拟倍数（5代表模拟5分钟级别趋势）
+    filter_fast = 5      # 模拟5min的5均线 -> 1min的25均线
+    filter_mid = 10      # 模拟5min的10均线 -> 1min的50均线
+    filter_slow = 20     # 模拟5min的20均线 -> 1min的100均线
+    
     atr_window = 14
     atr_multi = 3.0
     risk_percent = 0.01  # 每次亏损总资金的1%
@@ -23,23 +26,19 @@ class ModularDoubleMaStrategy(CtaTemplate):
     # 变量定义
     long_stop = 0
     short_stop = 0
-    pos_size = 0
     
     def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
         super().__init__(cta_engine, strategy_name, vt_symbol, setting)
+        # ArrayManager容量需大于最长均线周期 (20 * 5 = 100)
+        self.am = ArrayManager(size=150) 
         
-        self.am = ArrayManager()
-        # 创建5分钟K线生成器
-        self.bg_5min = BarGenerator(self.on_bar, 5, self.on_5min_bar)
-        self.am_5min = ArrayManager()
-        
-        # 记录每笔交易的R倍数，用于后期统计
         self.r_multiples = []
         self.entry_price = 0
         self.initial_risk = 0
 
     def on_init(self):
         self.write_log("策略初始化")
+        # 预热 10 天的数据。即使 history_data 是手动注入的，load_bar 也会从注入的数据中提取前 10 天的内容以确保 am.inited 变为 True
         self.load_bar(10)
 
     def on_start(self):
@@ -47,101 +46,103 @@ class ModularDoubleMaStrategy(CtaTemplate):
 
     def on_bar(self, bar: BarData):
         """1分钟K线推送"""
-        self.bg_5min.update_bar(bar) # 合成5分钟线
         self.am.update_bar(bar)
-        
-        if not self.am.inited or not self.am_5min.inited:
+
+        # 检查初始化状态
+        if not self.am.inited:
             return
 
-        # 执行离场逻辑 (止损/止盈)
+        # 执行离场逻辑
         self.check_exit_strategy(bar)
         
         # 执行进场逻辑
         if self.pos == 0:
-            if self.check_pre_condition() and self.check_entry_condition():
-                self.execute_open(bar)
-
-    def on_5min_bar(self, bar: BarData):
-        """5分钟K线更新"""
-        self.am_5min.update_bar(bar)
-
-    # --- 模块化部分 ---
+            pre_cond = self.check_pre_condition()
+            entry_cond = self.check_entry_condition()
+            
+            if pre_cond != 0 and entry_cond != 0:
+                # 只有方向一致时才开仓
+                if pre_cond == entry_cond:
+                    self.execute_open(bar, pre_cond)
 
     def check_pre_condition(self):
-        """1) 进场前提条件：5分钟级别趋势过滤"""
-        ma_fast = self.am_5min.sma(self.filter_fast)
-        ma_mid = self.am_5min.sma(self.filter_mid)
-        ma_slow = self.am_5min.sma(self.filter_slow)
+        """1) 趋势过滤：利用1分钟线模拟N分钟级别均线排列"""
+        # 计算模拟的长周期均线
+        ma_fast = self.am.sma(self.filter_fast * self.filter_n, array=False)
+        ma_mid = self.am.sma(self.filter_mid * self.filter_n, array=False)
+        ma_slow = self.am.sma(self.filter_slow * self.filter_n, array=False)   
         
         if ma_fast > ma_mid > ma_slow:
-            return 1 # 多头排列
+            return 1  # 多头排列
         elif ma_fast < ma_mid < ma_slow:
             return -1 # 空头排列
         return 0
 
     def check_entry_condition(self):
-        """2) 具体进场策略：1分钟双均线金叉死叉"""
-        ma_fast = self.am.sma(self.fast_window)
-        ma_slow = self.am.sma(self.slow_window)
+        """2) 进场信号：1分钟双均线金叉死叉"""
+        ma_fast = self.am.sma(self.fast_window, array=False)
+        ma_slow = self.am.sma(self.slow_window, array=False)
         
-        if ma_fast > ma_slow and self.am.sma(self.fast_window, 1) <= self.am.sma(self.slow_window, 1):
-            return 1 # 金叉
-        elif ma_fast < ma_slow and self.am.sma(self.fast_window, 1) >= self.am.sma(self.slow_window, 1):
+        # 上一根 K 线的均线值 (使用 sma_array 再取索引，或者通过逻辑获取)
+        # 最简单的做法是取回整个数组再用索引 [-2] 取倒数第二位
+        ma_fast_array = self.am.sma(self.fast_window, array=True)
+        ma_slow_array = self.am.sma(self.slow_window, array=True)
+
+        prev_ma_fast = ma_fast_array[-2]
+        prev_ma_slow = ma_slow_array[-2] 
+        
+        if ma_fast > ma_slow and prev_ma_fast <= prev_ma_slow:
+            return 1  # 金叉
+        elif ma_fast < ma_slow and prev_ma_fast >= prev_ma_slow:
             return -1 # 死叉
         return 0
 
-    def calculate_risk_position(self, price, atr):
-        """5) 仓位大小管理：基于R的风险控制"""
-        # 风险额度 = 当前净值 * 1%
-        # 此处简单使用初始资金，实际回测中可用 engine.get_portfolio_value()
+    def execute_open(self, bar: BarData, direction: int):
+        """模块化开仓"""
+        atr = self.am.atr(self.atr_window, array=False)
+        if atr == 0: return
+
+        # 计算仓位
         risk_amount = self.init_capital * self.risk_percent
         risk_per_share = atr * self.atr_multi
+        size = int(risk_amount / risk_per_share)
         
-        if risk_per_share == 0: return 0
-        return int(risk_amount / risk_per_share)
-
-    def execute_open(self, bar: BarData):
-        """模块化开仓"""
-        pre_cond = self.check_pre_condition()
-        entry_cond = self.check_entry_condition()
-        atr = self.am.atr(self.atr_window)
-        
-        size = self.calculate_risk_position(bar.close_price, atr)
         if size <= 0: return
 
-        if pre_cond == 1 and entry_cond == 1:
-            self.buy(bar.close_price + 0.5, size)
+        if direction == 1:
+            self.buy(bar.close_price + 1, size)
             self.entry_price = bar.close_price
-            self.initial_risk = atr * self.atr_multi
+            self.initial_risk = risk_per_share
             self.long_stop = bar.close_price - self.initial_risk
+            self.write_log(f"做多开仓: {size}股, 价格: {bar.close_price}, 止损: {self.long_stop}")
             
-        elif pre_cond == -1 and entry_cond == -1:
-            self.short(bar.close_price - 0.5, size)
+        elif direction == -1:
+            self.short(bar.close_price - 1, size)
             self.entry_price = bar.close_price
-            self.initial_risk = atr * self.atr_multi
+            self.initial_risk = risk_per_share
             self.short_stop = bar.close_price + self.initial_risk
+            self.write_log(f"做空开仓: {size}股, 价格: {bar.close_price}, 止损: {self.short_stop}")
 
     def check_exit_strategy(self, bar: BarData):
-        """3) & 4) 离场策略：初始止损R + 吊灯止损"""
+        """3) & 4) 离场策略：初始止损 + 追踪止损"""
+        atr = self.am.atr(self.atr_window, array=False)
+        
         if self.pos > 0:
-            # 吊灯止损逻辑（简化版：追踪最高价回撤）
-            atr = self.am.atr(self.atr_window)
+            # 追踪最高价回撤止损
             self.long_stop = max(self.long_stop, bar.high_price - self.atr_multi * atr)
-            
             if bar.close_price <= self.long_stop:
-                self.sell(bar.close_price - 0.5, abs(self.pos))
+                self.sell(bar.close_price - 1, abs(self.pos))
                 self.record_r_multiple(bar.close_price)
                 
         elif self.pos < 0:
-            atr = self.am.atr(self.atr_window)
+            # 追踪最低价回撤止损
             self.short_stop = min(self.short_stop, bar.low_price + self.atr_multi * atr)
-            
             if bar.close_price >= self.short_stop:
-                self.cover(bar.close_price + 0.5, abs(self.pos))
+                self.cover(bar.close_price + 1, abs(self.pos))
                 self.record_r_multiple(bar.close_price)
 
     def record_r_multiple(self, exit_price):
-        """记录R倍数"""
+        """记录R倍数统计"""
         if self.initial_risk == 0: return
         profit = (exit_price - self.entry_price) if self.pos > 0 else (self.entry_price - exit_price)
         r_val = profit / self.initial_risk

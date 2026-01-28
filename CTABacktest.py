@@ -1,104 +1,127 @@
-from vnpy_ctastrategy.backtesting import BacktestingEngine
+import os
+import webbrowser
+import numpy as np
 import pandas as pd
+import dolphindb as ddb
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+from datetime import datetime
 
-def run_backtest(target_symbol="AG2005", db_path="dfs://vnpy", table_name="bar"):
-    # 1. 处理主力合约映射
-    mapping_path = r"D:\Data\FutureData\futures_dominant_mapping.csv"
-    df_mapping = pd.read_csv(mapping_path, index_col=0, parse_dates=True)
-    
-    # 获取该品种对应的列（例如 'AG'）
-    product_code = ''.join([i for i in target_symbol if not i.isdigit()]).upper()
-    if product_code not in df_mapping.columns:
-        print(f"找不到品种 {product_code}")
-        return
+from vnpy_ctastrategy.backtesting import BacktestingEngine
+from vnpy.trader.constant import Interval, Exchange
+from vnpy_ctastrategy import BarData
+from ModularDoubleMaStrategy import ModularDoubleMaStrategy
 
-    # 找到该合约作为主力的日期范围
-    series = df_mapping[product_code]
-    # 注意：CSV中的格式可能是 AG2005.SHFE，需做匹配
-    dominant_dates = series[series.str.contains(target_symbol, na=False)].index
-    
-    if dominant_dates.empty:
-        print(f"合约 {target_symbol} 在映射表中未被识别为主力合约")
-        return
-    
-    start_date = dominant_dates.min()
-    end_date = dominant_dates.max()
-    
-    print(f"回测合约: {target_symbol} | 主力期间: {start_date} 至 {end_date}")
-
-    # 2. 从 DolphinDB 加载数据
+def get_dominant_period(symbol):
+    """从 DolphinDB 获取主力合约期间"""
     s = ddb.session()
-    s.connect("localhost", 8848, "admin", "123456") # 根据实际修改
-    
-    # 构造DolphinDB脚本查询数据
-    # 过滤时间范围和合约代码
+    s.connect("localhost", 8848, "admin", "123456")
     script = f"""
-    t = loadTable("{db_path}", "{table_name}")
-    select * from t where symbol=`{target_symbol}, 
-    datetime >= {start_date.strftime('%Y.%m.%d')}, 
-    datetime <= {end_date.strftime('%Y.%m.%d')}
+    t = loadTable("dfs://vnpy", "dominant_mapping")
+    select min(trade_date) as start_date, max(trade_date) as end_date from t 
+    where dominant_contract like '{symbol}%'
     """
+    result = s.run(script)
+    if result.empty: return None, None
+    return result['start_date'][0], result['end_date'][0]
+
+# --- 修改 create_web_report 函数 ---
+
+import json
+from datetime import date, datetime
+
+def create_web_report(df: pd.DataFrame, stats: dict, target_symbol: str, initial_capital: float, size: float):
+    # 1. 提取每日数据 (保持原有逻辑)
+    daily_data = []
+    for date_idx, row in df.iterrows():
+        mkt_val = abs(row['end_pos']) * row['close_price'] * size
+        daily_data.append({
+            "date": date_idx.strftime('%Y-%m-%d'),
+            "balance": round(row['balance'], 2),
+            "drawdown": round(row['drawdown'], 2),
+            "net_pnl": round(row['net_pnl'], 2),
+            "pos": int(row['end_pos']),
+            "price": round(row['close_price'], 2),
+            "market_value": round(mkt_val, 2)
+        })
+
+# 2. 处理统计指标，将不可序列化的对象（日期、NumPy类型）转为原生 Python 类型
+    processed_stats = {}
+    for k, v in stats.items():
+        # 转换日期/时间
+        if isinstance(v, (date, datetime, pd.Timestamp)):
+            processed_stats[k] = v.strftime('%Y-%m-%d')
+        # 转换 NumPy 的整数 (如 int64)
+        elif isinstance(v, (np.integer, np.int64)):
+            processed_stats[k] = int(v)
+        # 转换 NumPy 的浮点数 (如 float64) 或普通浮点数
+        elif isinstance(v, (np.floating, np.float64, float)):
+            if np.isnan(v) or np.isinf(v):
+                processed_stats[k] = 0.0
+            else:
+                processed_stats[k] = float(v) # 强制转为原生 float
+        else:
+            processed_stats[k] = v
+
+    # 3. 准备渲染映射
+    render_mapping = {
+        "{{target_symbol}}": str(target_symbol),
+        "{{start_date}}": str(processed_stats.get('start_date', '-')),
+        "{{end_date}}": str(processed_stats.get('end_date', '-')),
+        "{{capital}}": f"{initial_capital:,.2f}",
+        "{{initial_capital}}": str(initial_capital),
+        "{{daily_json_data}}": json.dumps(daily_data),
+        "{{stats_json_data}}": json.dumps(processed_stats) 
+    }
+
+    
+    # 读取并替换模板
+    with open("report_template.html", "r", encoding="utf-8") as f:
+        html_content = f.read()
+    
+    for key, value in render_mapping.items():
+        html_content = html_content.replace(key, value)
+    
+    report_name = f"Report_{target_symbol}.html"
+    with open(report_name, "w", encoding="utf-8") as f:
+        f.write(html_content)
+    
+    print(f">>> 报告生成成功: {report_name}")
+    webbrowser.open(f"file:///{os.path.abspath(report_name)}")
+
+
+def run_backtest(target_symbol, db_path, table_name):
+    """原有回测功能保持不变"""
+    start_date, end_date = get_dominant_period(target_symbol)
+    if start_date is None or pd.isna(start_date): return
+    
+    print(f">>> 开始运行 {target_symbol} 专业回测流程...")
+
+    s = ddb.session()
+    s.connect("localhost", 8848, "admin", "123456")
+    script = f"select * from loadTable('{db_path}', '{table_name}') where symbol=`{target_symbol}, datetime >= {start_date.strftime('%Y.%m.%d')}, datetime <= {end_date.strftime('%Y.%m.%d')}"
     data = s.run(script)
     
-    # 将DolphinDB数据转换为vn.py的BarData列表
-    history_data = []
-    for index, row in data.iterrows():
-        bar = BarData(
-            symbol=row['symbol'],
-            exchange=None, # 根据需要填入
-            datetime=row['datetime'],
-            interval=Interval.MINUTE,
-            open_price=row['open'],
-            high_price=row['high'],
-            low_price=row['low'],
-            close_price=row['close'],
-            volume=row['volume'],
-            gateway_name="DB"
-        )
-        history_data.append(bar)
+    history_data = [BarData(symbol=r['symbol'], exchange=Exchange(r['exchange']), datetime=r['datetime'], interval=Interval.MINUTE, 
+                            open_price=r['open_price'], high_price=r['high_price'], low_price=r['low_price'], 
+                            close_price=r['close_price'], volume=r['volume'], gateway_name="DB") for _, r in data.iterrows()]
 
-    # 3. 配置引擎
     engine = BacktestingEngine()
-    engine.set_parameters(
-        vt_symbol=f"{target_symbol}.LOCAL",
-        interval=Interval.MINUTE,
-        start=start_date,
-        end=end_date,
-        rate=0.0001,   # 手续费万一
-        slippage=0.2,  # 滑点
-        size=10,       # 合约乘数
-        pricetick=1,   # 价格跳动
-        capital=100000
-    )
+    engine.set_parameters(vt_symbol=f"{target_symbol}.LOCAL", interval=Interval.MINUTE, 
+                          start=start_date.to_pydatetime() if hasattr(start_date, 'to_pydatetime') else start_date,
+                          end=end_date.to_pydatetime() if hasattr(end_date, 'to_pydatetime') else end_date,
+                          rate=0.0001, slippage=0.2, size=10, pricetick=1, capital=100000)
     
     engine.add_strategy(ModularDoubleMaStrategy, {})
     engine.history_data = history_data
-    
-    # 4. 运行回测
     engine.run_backtesting()
-    df_results = engine.calculate_result()
+    df = engine.calculate_result()
     statistics = engine.calculate_statistics()
     
-    # 5. 计算 Van Tharp 绩效指标
-    r_list = engine.strategy.r_multiples
-    if r_list:
-        win_rate = len([r for r in r_list if r > 0]) / len(r_list)
-        avg_r = np.mean(r_list)
-        std_r = np.std(r_list)
-        sqn = (len(r_list)**0.5) * (avg_r / std_r) if std_r != 0 else 0
-        
-        print("\n" + "="*30)
-        print("--- Van Tharp 核心绩效 ---")
-        print(f"总交易笔数: {len(r_list)}")
-        print(f"胜率: {win_rate:.2%}")
-        print(f"平均R倍数: {avg_r:.2f}R")
-        print(f"R倍数标准差: {std_r:.2f}")
-        print(f"SQN评分: {sqn:.2f}")
-        print(f"总R收益: {sum(r_list):.2f}R")
-        print("="*30)
-    
-    return statistics
+    # 注入 R 倍数统计逻辑并生成报告
+    # create_web_report(df, engine.strategy.r_multiples, stats, target_symbol)
+    create_web_report(df, statistics, target_symbol, engine.capital, engine.size)
+    return df, statistics # 可选
 
-# 运行
 if __name__ == "__main__":
-    stats = run_backtest("AG2005")
+    run_backtest(target_symbol="AG2602", db_path="dfs://vnpy", table_name="bar")

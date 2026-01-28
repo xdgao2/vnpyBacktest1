@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>回测报告 - {{target_symbol}}</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        :root { --sidebar-width: 130px; --header-height: 100px; --jq-red: #e74c3c; --jq-bg: #f4f7f9; }
+        body { font-family: "PingFang SC", "Microsoft YaHei", sans-serif; margin: 0; background-color: var(--jq-bg); overflow: hidden; }
+        
+        /* 顶部跨页栏 */
+        .header { height: var(--header-height); background: #fff; border-bottom: 1px solid #dcdfe6; box-sizing: border-box; }
+        .header-info { height: 45px; display: flex; align-items: center; padding: 0 20px; font-size: 13px; color: #606266; gap: 30px; border-bottom: 1px solid #f2f6fc; }
+        .header-controls { height: 55px; display: flex; align-items: center; padding: 0 20px; gap: 15px; }
+        .info-label { color: #909399; margin-right: 5px; }
+        .info-value { color: #303133; font-weight: 500; }
+        .btn-confirm { background: var(--jq-red); color: white; border: none; padding: 6px 22px; border-radius: 3px; cursor: pointer; font-size: 13px; }
+        select, input { border: 1px solid #dcdfe6; padding: 5px 10px; border-radius: 4px; outline: none; font-size: 13px; }
+
+        /* 主体布局 */
+        .wrapper { display: flex; height: calc(100vh - var(--header-height)); }
+        .sidebar { width: var(--sidebar-width); background: #fff; border-right: 1px solid #dcdfe6; flex-shrink: 0; }
+        .menu-item { padding: 18px 0; text-align: center; cursor: pointer; font-size: 14px; color: #606266; border-left: 3px solid transparent; }
+        .menu-item.active { background: #fff1f0; color: var(--jq-red); border-left-color: var(--jq-red); font-weight: bold; }
+
+        /* 内容区 */
+        .content-area { flex: 1; padding: 20px; overflow-y: auto; box-sizing: border-box; }
+        .page { display: none; }
+        .page.active { display: block; }
+        .card { background: #fff; border-radius: 4px; box-shadow: 0 2px 12px 0 rgba(0,0,0,0.05); padding: 20px; margin-bottom: 20px; }
+        h2 { font-size: 15px; margin: 0 0 15px 0; color: #303133; display: flex; align-items: center; }
+        h2::before { content: ""; width: 3px; height: 14px; background: var(--jq-red); margin-right: 8px; }
+
+        /* 绩效概览三行布局 */
+        .chart-row { display: flex; gap: 20px; margin-bottom: 30px; border-bottom: 1px solid #f0f2f5; padding-bottom: 20px; }
+        .chart-main { flex: 3.5; height: 350px; }
+        .stats-side { flex: 1; display: flex; flex-direction: column; justify-content: center; background: #fafafa; padding: 15px; border-radius: 4px; border: 1px solid #f0f0f0; }
+        .stat-item { display: flex; justify-content: space-between; margin-bottom: 12px; font-size: 13px; }
+        .stat-label { color: #909399; }
+        .stat-value { color: #303133; font-weight: bold; }
+
+        /* 表格样式 */
+        .snapshot-table-container { 
+            margin-top: 20px; 
+            max-height: 400px; 
+            overflow-y: auto; 
+            border: 1px solid #ebeef5; 
+        }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; }
+        thead { background-color: #f5f7fa; position: sticky; top: 0; z-index: 1; }
+        th, td { padding: 12px 15px; border-bottom: 1px solid #ebeef5; }
+        tr:hover { background-color: #f9fafc; }
+        .text-red { color: #e74c3c; }
+        .text-green { color: #27ae60; }
+
+        /* 统计页布局 */
+        .stats-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+            gap: 20px;
+            padding: 10px;
+        }
+        .stats-group-title {
+            grid-column: 1 / -1;
+            font-size: 16px;
+            font-weight: bold;
+            color: #303133;
+            margin: 15px 0 5px 0;
+            padding-left: 10px;
+            border-left: 4px solid var(--jq-red);
+        }
+        .stat-card {
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #ebeef5;
+            box-shadow: 0 2px 12px 0 rgba(0,0,0,0.05);
+            display: flex;
+            flex-direction: column;
+        }
+        .stat-label { font-size: 13px; color: #909399; margin-bottom: 10px; }
+        .stat-value { font-size: 20px; font-weight: bold; color: #303133; }
+        .stat-unit { font-size: 12px; color: #909399; margin-left: 4px; }
+
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <div class="header-info">
+            <div><span class="info-label">回测合约:</span><span class="info-value">{{target_symbol}}</span></div>
+            <div><span class="info-label">期初资金:</span><span class="info-value">{{capital}} 元</span></div>
+        </div>
+        <div class="header-controls">
+            <select id="periodSelector">
+                <option value="all">成立以来</option>
+                <option value="custom">自定义时间段</option>
+            </select>
+            <input type="date" id="startDate" value="{{start_date}}">
+            <span style="color:#dcdfe6">-</span>
+            <input type="date" id="endDate" value="{{end_date}}">
+            <button class="btn-confirm" onclick="handleUpdate()">确定</button>
+        </div>
+    </div>
+
+    <div class="wrapper">
+        <div class="sidebar">
+            <div class="menu-item active" onclick="switchTab('p1', this)">绩效概览</div>
+            <div class="menu-item" onclick="switchTab('p2', this)">持仓分析</div>
+            <div class="menu-item" onclick="switchTab('p3', this)">交易统计</div>
+            <div class="menu-item" onclick="switchTab('p4', this)">每日明细</div>
+            <div class="menu-item" onclick="switchTab('p5', this)">信号分析</div>
+            <div class="menu-item" onclick="switchTab('p6', this)">回测日志</div>
+        </div>
+
+        <div class="content-area">
+            <div id="p1" class="page active">
+                <div class="card">
+                <h2>收益图 (Cumulative Return)</h2>
+                        <div class="chart-row">
+                            <div id="chart-equity" class="chart-main"></div>
+                            <div class="stats-side">
+                                <div class="stat-group">
+                                    <div class="stat-item"><span class="stat-label">累计盈亏</span><span id="val-pnl" class="stat-value">-</span></div>
+                                    <div class="stat-item"><span class="stat-label">累计收益率</span><span id="val-total-ret" class="stat-value">-</span></div>
+                                    <div class="stat-item"><span class="stat-label">年化收益率</span><span id="val-annual-ret" class="stat-value">-</span></div>
+                                    <div class="stat-item"><span class="stat-label">夏普比率</span><span id="val-sharpe" class="stat-value">-</span></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <h2>回撤图 (Drawdown)</h2>
+                        <div class="chart-row">
+                            <div id="chart-drawdown" class="chart-main"></div>
+                            <div class="stats-side">
+                                <div class="stat-group">
+                                    <div class="stat-item"><span class="stat-label">最大回撤率</span><span id="val-mdd-pct" class="stat-value" style="color:var(--jq-red)">-</span></div>
+                                    <div class="stat-item"><span class="stat-label">最大回撤金额</span><span id="val-mdd-cash" class="stat-value">-</span></div>
+                                    <div class="stat-item"><span class="stat-label">收益回撤比</span><span id="val-calmar" class="stat-value">-</span></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <h2>每日盈亏 (Daily PnL)</h2>
+                        <div class="chart-row">
+                            <div id="chart-daily" class="chart-main"></div>
+                            <div class="stats-side">
+                                <div class="stat-group">
+                                    <div class="stat-item"><span class="stat-label">盈利天数</span><span id="val-win-days" class="stat-value" style="color:#27ae60">-</span></div>
+                                    <div class="stat-item"><span class="stat-label">亏损天数</span><span id="val-loss-days" class="stat-value" style="color:var(--jq-red)">-</span></div>
+                                    <div class="stat-item"><span class="stat-label">胜率(按天)</span><span id="val-win-ratio" class="stat-value">-</span></div>
+                                    <div class="stat-item"><span class="stat-label">日均盈亏</span><span id="val-avg-pnl" class="stat-value">-</span></div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                    <h2>收益率 (Daily Returns)</h2>
+                    <div class="chart-row">
+                        <div id="chart-daily" class="chart-main"></div>
+                        <div class="stats-side" id="stats-daily">
+                            <div class="stat-item"><span class="stat-label">盈利天数</span><span class="stat-value" id="val-win-days">-</span></div>
+                            <div class="stat-item"><span class="stat-label">亏损天数</span><span class="stat-value" id="val-loss-days">-</span></div>
+                            <div class="stat-item"><span class="stat-label">日均盈亏</span><span class="stat-value" id="val-avg-pnl">-</span></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div id="p2" class="page">
+                <div class="card">
+                    <h2>持仓市值对比 (Position vs Net Value)</h2>
+                    <div id="chart-position" style="height: 400px; margin-bottom: 30px;"></div>
+                    
+                    <h2>每日快照 (Daily Snapshot)</h2>
+                    <div style="margin-top:20px; max-height:500px; overflow-y:auto; border:1px solid #ebeef5;">
+                        <table style="width:100%; border-collapse:collapse; font-size:13px;">
+                            <thead style="background:#f5f7fa; position:sticky; top:0;">
+                                <tr>
+                                    <th style="padding:12px; border-bottom:1px solid #ddd;">日期</th>
+                                    <th style="padding:12px; border-bottom:1px solid #ddd;">收盘价</th>
+                                    <th style="padding:12px; border-bottom:1px solid #ddd;">当前仓位</th>
+                                    <th style="padding:12px; border-bottom:1px solid #ddd;">持仓市值</th>
+                                    <th style="padding:12px; border-bottom:1px solid #ddd;">资产净值</th>
+                                    <th style="padding:12px; border-bottom:1px solid #ddd;">日盈亏</th>
+                                </tr>
+                            </thead>
+                            <tbody id="snapshot-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>            
+
+
+            <div id="p3" class="page">
+                <div class="stats-container" id="stats-grid">
+                    </div>
+            </div>
+
+            <div id="p4" class="page"><div class="card"><h2>每日明细</h2></div></div>
+            <div id="p5" class="page"><div class="card"><h2>信号分析</h2></div></div>
+            <div id="p6" class="page"><div class="card"><h2>回测日志</h2></div></div>
+        </div>
+    </div>
+
+    <script>
+        // Python 注入的数据
+        const rawDataString = '{{daily_json_data}}';
+        const initCapital = parseFloat('{{initial_capital}}') || 0;
+        const statsData = JSON.parse('{{stats_json_data}}');
+
+        // 在运行时解析字符串
+        let rawData = [];
+        try {
+            rawData = JSON.parse(rawDataString);
+        } catch (e) {
+            console.error("数据解析失败:", e);
+        }
+
+        function switchTab(pageId, el) {
+            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+            document.querySelectorAll('.menu-item').forEach(m => m.classList.remove('active'));
+            document.getElementById(pageId).classList.add('active');
+            el.classList.add('active');
+            if(pageId === 'p1') handleUpdate();
+        }
+
+        function handleUpdate() {
+            const start = document.getElementById('startDate').value;
+            const end = document.getElementById('endDate').value;
+            const filtered = rawData.filter(d => d.date >= start && d.date <= end);
+            
+            
+            renderPerformance(filtered); 
+            renderPositionAnalysis(filtered); // 触发分页2渲染
+            renderStats(filtered); // 触发分页3渲染
+        }
+
+        function renderPositionAnalysis(data) {
+            if (!data.length) return;
+
+            const dates = data.map(d => d.date);
+            const balances = data.map(d => d.balance);
+            const mktValues = data.map(d => d.market_value);
+
+            // 1. 组合图：面积图(市值) + 折线图(净值)
+            const traceNet = {
+                x: dates, y: balances, name: '资产净值',
+                type: 'scatter', mode: 'lines', line: {color: '#3498db', width: 2}
+            };
+            const traceMkt = {
+                x: dates, y: mktValues, name: '持仓市值',
+                type: 'scatter', fill: 'tozeroy', mode: 'none', 
+                fillcolor: 'rgba(231, 76, 60, 0.2)', name: '持仓区域'
+            };
+            
+            Plotly.newPlot('chart-position', [traceMkt, traceNet], {
+                margin: {t:20, b:40, l:60, r:20},
+                hovermode: 'x unified',
+                legend: { orientation: 'h', y: 1.1 }
+            });
+
+            // 2. 填充快照表格
+            const tbody = document.getElementById('snapshot-body');
+            // 倒序显示（最新日期在前）
+            const displayData = [...data].reverse();
+            tbody.innerHTML = displayData.map(d => `
+                <tr style="border-bottom:1px solid #eee;">
+                    <td style="padding:10px;">${d.date}</td>
+                    <td style="padding:10px;">${d.price}</td>
+                    <td style="padding:10px; font-weight:bold; color:${d.pos !== 0 ? '#e67e22' : '#909399'}">${d.pos}</td>
+                    <td style="padding:10px;">${d.market_value.toLocaleString()}</td>
+                    <td style="padding:10px;">${d.balance.toLocaleString()}</td>
+                    <td style="padding:10px; color:${d.net_pnl >= 0 ? '#27ae60' : '#e74c3c'}">
+                        ${d.net_pnl > 0 ? '+' : ''}${d.net_pnl.toFixed(2)}
+                    </td>
+                </tr>
+            `).join('');
+        }
+        
+
+        function renderPerformance(data) {
+            if (data.length === 0) return;
+
+            const dates = data.map(d => d.date);
+            const balance = data.map(d => d.balance);
+            const drawdown = data.map(d => d.drawdown_percent || (d.drawdown / (d.balance + d.drawdown) * 100));
+            const dailyNet = data.map(d => d.net_pnl);
+
+            // 1. 收益图
+            Plotly.newPlot('chart-equity', [{
+                x: dates, y: balance, type: 'scatter', mode: 'lines',
+                line: {color: '#1a5276', width: 2}, fill: 'tozeroy', fillcolor: 'rgba(26, 82, 118, 0.1)'
+            }], { margin: {t:10, b:40, l:50, r:10}, hovermode: 'x unified' });
+
+            // 2. 回撤图
+            Plotly.newPlot('chart-drawdown', [{
+                x: dates, y: drawdown, type: 'scatter', mode: 'lines',
+                line: {color: '#e74c3c', width: 1}, fill: 'tozeroy', fillcolor: 'rgba(231, 76, 60, 0.1)'
+            }], { margin: {t:10, b:40, l:50, r:10}, yaxis: {autorange: 'reversed', ticksuffix: '%'} });
+
+            // 3. 收益率图 (柱状图)
+            const colors = dailyNet.map(v => v >= 0 ? '#27ae60' : '#e74c3c');
+            Plotly.newPlot('chart-daily', [{
+                x: dates, y: dailyNet, type: 'bar', marker: {color: colors}
+            }], { margin: {t:10, b:40, l:50, r:10} });
+
+            // 计算指标显示
+            const totalPnl = balance[balance.length-1] - initCapital;
+            const totalRet = (totalPnl / initCapital) * 100;
+            const days = data.length;
+            const annRet = (totalRet / days) * 252;
+            
+            document.getElementById('val-pnl').innerText = totalPnl.toLocaleString(undefined, {minimumFractionDigits:2});
+            document.getElementById('val-total-ret').innerText = totalRet.toFixed(2) + '%';
+            document.getElementById('val-annual-ret').innerText = annRet.toFixed(2) + '%';
+            
+            const maxMdd = Math.max(...drawdown);
+            document.getElementById('val-mdd-pct').innerText = maxMdd.toFixed(2) + '%';
+            document.getElementById('val-calmar').innerText = (annRet / maxMdd).toFixed(2);
+            
+            const wins = dailyNet.filter(v => v > 0).length;
+            document.getElementById('val-win-days').innerText = wins;
+            document.getElementById('val-loss-days').innerText = dailyNet.filter(v => v < 0).length;
+            document.getElementById('val-avg-pnl').innerText = (totalPnl / days).toFixed(2);
+        }
+
+        function handleUpdate() {
+            const start = document.getElementById('startDate').value;
+            const end = document.getElementById('endDate').value;
+            const filtered = rawData.filter(d => d.date >= start && d.date <= end);
+            
+            renderPerformance(filtered);  // 分页1渲染
+            renderPositionAnalysis(filtered); // 分页2渲染
+        }
+
+        function renderPositionAnalysis(data) {
+            if (data.length === 0) return;
+
+            const dates = data.map(d => d.date);
+            const balances = data.map(d => d.balance);
+            const mktValues = data.map(d => d.market_value);
+
+            // 1. 绘制对比图
+            const trace1 = {
+                x: dates, y: balances, name: '资产净值',
+                type: 'scatter', mode: 'lines', line: {color: '#3498db'}
+            };
+            const trace2 = {
+                x: dates, y: mktValues, name: '持仓市值',
+                type: 'bar', marker: {color: 'rgba(231, 76, 60, 0.4)'}
+            };
+            
+            Plotly.newPlot('chart-position', [trace2, trace1], {
+                margin: {t:30, b:40, l:60, r:20},
+                hovermode: 'x unified',
+                legend: { orientation: 'h', y: 1.1 }
+            });
+
+            // 2. 填充表格
+            const tbody = document.getElementById('snapshot-body');
+            tbody.innerHTML = data.map(d => `
+                <tr>
+                    <td>${d.date}</td>
+                    <td>${d.price.toFixed(2)}</td>
+                    <td style="font-weight:bold; color:${d.pos !== 0 ? '#e67e22' : '#909399'}">${d.pos}</td>
+                    <td>${d.market_value.toLocaleString()}</td>
+                    <td>${d.balance.toLocaleString()}</td>
+                    <td class="${d.net_pnl >= 0 ? 'text-green' : 'text-red'}">
+                        ${d.net_pnl >= 0 ? '+' : ''}${d.net_pnl.toFixed(2)}
+                    </td>
+                </tr>
+            `).join('');
+            // 注意：表格通常倒序排列（最新日期在最前），所以用了 .reverse()
+        }
+
+        // 3. 统计项定义（为了美观，我们对 vnpy 的原始字段进行分组和重命名）
+        const statsConfig = [
+            { title: "核心指标", items: [
+                { key: "total_return", label: "总收益率", unit: "%", factor: 1 },
+                { key: "annual_return", label: "年化收益", unit: "%", factor: 1 },
+                { key: "sharpe_ratio", label: "夏普比率", unit: "", factor: 1 },
+                { key: "return_drawdown_ratio", label: "收益回撤比", unit: "", factor: 1 }
+            ]},
+            { title: "风险控制", items: [
+                { key: "max_drawdown", label: "最大回撤金额", unit: "¥", factor: 1 },
+                { key: "max_ddpercent", label: "百分比最大回撤", unit: "%", factor: 1 },
+                { key: "max_drawdown_duration", label: "最长回撤天数", unit: "天", factor: 1 }
+            ]},
+            { title: "交易概览", items: [
+                { key: "total_trade_count", label: "总成交笔数", unit: "笔", factor: 1 },
+                { key: "daily_trade_count", label: "日均成交笔数", unit: "笔", factor: 1 },
+                { key: "total_commission", label: "总手续费", unit: "¥", factor: 1 },
+                { key: "total_slippage", label: "总滑点", unit: "¥", factor: 1 }
+            ]}
+        ];
+
+        function renderTradeStatistics(stats) {
+            const grid = document.getElementById('stats-grid');
+            if (!stats) return;
+
+            let html = '';
+            statsConfig.forEach(group => {
+                html += `<div class="stats-group-title">${group.title}</div>`;
+                group.items.forEach(item => {
+                    let val = stats[item.key] || 0;
+                    // 格式化数值
+                    let displayVal = typeof val === 'number' ? val.toLocaleString(undefined, {minimumFractionDigits: 2}) : val;
+                    
+                    html += `
+                        <div class="stat-card">
+                            <div class="stat-label">${item.label}</div>
+                            <div class="stat-value">
+                                ${displayVal}
+                                <span class="stat-unit">${item.unit}</span>
+                            </div>
+                        </div>
+                    `;
+                });
+            });
+            grid.innerHTML = html;
+        }
+
+        // 页面加载完成后初始渲染一次
+        renderTradeStatistics(statsData);
+
+        // 初始化加载
+        window.onload = handleUpdate;
+    </script>
+</body>
+</html>

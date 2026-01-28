@@ -1,0 +1,15 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Current File",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            // 关键：手动指向 VeighNa Studio 的 python 路径
+            "python": "d:/veighna_studio/python.exe", 
+            "justMyCode": true
+        }
+    ]
+}

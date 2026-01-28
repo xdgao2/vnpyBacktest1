@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>回测报告 - AG2602</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        :root { --sidebar-width: 130px; --header-height: 100px; --jq-red: #e74c3c; --jq-bg: #f4f7f9; }
+        body { font-family: "PingFang SC", "Microsoft YaHei", sans-serif; margin: 0; background-color: var(--jq-bg); overflow: hidden; }
+        
+        /* 顶部跨页栏 */
+        .header { height: var(--header-height); background: #fff; border-bottom: 1px solid #dcdfe6; box-sizing: border-box; }
+        .header-info { height: 45px; display: flex; align-items: center; padding: 0 20px; font-size: 13px; color: #606266; gap: 30px; border-bottom: 1px solid #f2f6fc; }
+        .header-controls { height: 55px; display: flex; align-items: center; padding: 0 20px; gap: 15px; }
+        .info-label { color: #909399; margin-right: 5px; }
+        .info-value { color: #303133; font-weight: 500; }
+        .btn-confirm { background: var(--jq-red); color: white; border: none; padding: 6px 22px; border-radius: 3px; cursor: pointer; font-size: 13px; }
+        select, input { border: 1px solid #dcdfe6; padding: 5px 10px; border-radius: 4px; outline: none; font-size: 13px; }
+
+        /* 主体布局 */
+        .wrapper { display: flex; height: calc(100vh - var(--header-height)); }
+        
+        /* 左侧菜单 */
+        .sidebar { width: var(--sidebar-width); background: #fff; border-right: 1px solid #dcdfe6; flex-shrink: 0; }
+        .menu-item { padding: 18px 0; text-align: center; cursor: pointer; font-size: 14px; color: #606266; border-left: 3px solid transparent; transition: all 0.3s; }
+        .menu-item:hover { background: #f5f7fa; color: var(--jq-red); }
+        .menu-item.active { background: #fff1f0; color: var(--jq-red); border-left-color: var(--jq-red); font-weight: bold; }
+
+        /* 右侧内容区 */
+        .content-area { flex: 1; padding: 20px; overflow-y: auto; box-sizing: border-box; }
+        .page { display: none; height: 100%; }
+        .page.active { display: block; }
+        .card { background: #fff; border-radius: 4px; box-shadow: 0 2px 12px 0 rgba(0,0,0,0.05); padding: 20px; min-height: 500px; }
+        h2 { font-size: 16px; margin: 0 0 20px 0; color: #303133; display: flex; align-items: center; }
+        h2::before { content: ""; width: 4px; height: 16px; background: var(--jq-red); margin-right: 10px; border-radius: 2px; }
+        .placeholder-text { color: #909399; font-style: italic; text-align: center; margin-top: 100px; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <div class="header-info">
+            <div><span class="info-label">回测合约:</span><span class="info-value">AG2602</span></div>
+            <div><span class="info-label">回测时间:</span><span class="info-value">2025-11-12 ~ 2025-12-30</span></div>
+            <div><span class="info-label">期初资金:</span><span class="info-value">100,000.00 元</span></div>
+        </div>
+        <div class="header-controls">
+            <select id="periodSelector">
+                <option value="all">成立以来</option>
+                <option value="this_month">本月</option>
+                <option value="last_month">上一个月</option>
+                <option value="this_year">本年</option>
+                <option value="custom">自定义时间段</option>
+            </select>
+            <input type="date" value="2025-11-12">
+            <span style="color:#dcdfe6">-</span>
+            <input type="date" value="2025-12-30">
+            <button class="btn-confirm">确定</button>
+        </div>
+    </div>
+
+    <div class="wrapper">
+        <div class="sidebar">
+            <div class="menu-item active" onclick="switchTab('p1', this)">绩效概览</div>
+            <div class="menu-item" onclick="switchTab('p2', this)">持仓分析</div>
+            <div class="menu-item" onclick="switchTab('p3', this)">交易统计</div>
+            <div class="menu-item" onclick="switchTab('p4', this)">每日明细</div>
+            <div class="menu-item" onclick="switchTab('p5', this)">信号分析</div>
+            <div class="menu-item" onclick="switchTab('p6', this)">回测日志</div>
+        </div>
+
+        <div class="content-area">
+            <div id="p1" class="page active"><div class="card"><h2>绩效概览</h2><div class="placeholder-text">暂无图形数据</div></div></div>
+            <div id="p2" class="page"><div class="card"><h2>持仓分析</h2><div class="placeholder-text">待生成持仓快照...</div></div></div>
+            <div id="p3" class="page"><div class="card"><h2>交易统计</h2><div class="placeholder-text">待注入统计指标...</div></div></div>
+            <div id="p4" class="page"><div class="card"><h2>每日明细</h2><div class="placeholder-text">（空白页）</div></div></div>
+            <div id="p5" class="page"><div class="card"><h2>信号分析</h2><div class="placeholder-text">待绘制K线信号图...</div></div></div>
+            <div id="p6" class="page">
+                <div class="card">
+                    <h2>回测日志</h2>
+                    <div id="logContent" style="background:#2c3e50; color:#bdc3c7; padding:15px; font-family:monospace; line-height:1.6; border-radius:4px;">
+                        [INFO] 初始化策略参数...<br>
+                        [INFO] 载入历史数据成功...<br>
+                        [INFO] 开始回放 K 线序列...<br>
+                        [SUCCESS] 回测任务执行完毕。
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function switchTab(pageId, el) {
+            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+            document.querySelectorAll('.menu-item').forEach(m => m.classList.remove('active'));
+            document.getElementById(pageId).classList.add('active');
+            el.classList.add('active');
+        }
+    </script>
+</body>
+</html>
