@@ -158,7 +158,10 @@ def run_backtest(target_symbol: str):
     }
 
     # 7. 保存文件并导出
-    output_dir = Path("backtest_results") / f"Report_{target_symbol}_{datetime.now().strftime('%m%d_%H%M%S')}"
+    strategy_name=ModularDoubleMaStrategy.__name__
+    now_str = datetime.now().strftime('%Y%m%d_%H%M%S')
+
+    output_dir = Path("backtest_results") / f"{strategy_name}_{target_symbol}_{now_str}"
     output_dir.mkdir(parents=True, exist_ok=True)
     
     cleaned_data = DataSanitizer.clean(data_packet)

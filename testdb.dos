@@ -1,3 +1,6 @@
-    t = loadTable("dfs://vnpy", "dominant_mapping")
-    select min(trade_date) as start_date, max(trade_date) as end_date from t
-    where dominant_contract like 'AG2002%'
+// t = loadTable("dfs://vnpy", "bars") => getFileBlocksMeta on path '/vnpy/bars.tbl' failed, reason: path does not exist' script: '
+    t = loadTable("dfs://vnpy", "bars")
+    select * from t where symbol like 'AG2602%',
+    datetime >= 2025.11.12,
+    datetime <= 2025.12.31
+    order by datetime
