@@ -1,0 +1,1 @@
+window.BACKTEST_DATA = {"metadata": {"strategy": "ModularDoubleMaStrategy", "symbol": "AG2602", "start": "2025-01-01", "end": "2026-01-01", "capital": 100000, "created_at": "2026-01-29 14:32:31"}, "stats": {}, "daily_data": [], "trades": [], "klines": [], "logs": []};
