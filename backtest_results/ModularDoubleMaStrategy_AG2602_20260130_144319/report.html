@@ -87,6 +87,7 @@
         <div class="logo-area">策略回测报告</div>
         <div class="nav-item active" onclick="navTo('p1')">绩效概览</div>
         <div class="nav-item" onclick="navTo('p2')">持仓分析</div>
+        <div class="nav-item" onclick="navTo('p3')">Tharp统计</div>
         <div class="nav-item" onclick="navTo('p4')">每日明细</div>
         <div class="nav-item" onclick="navTo('p5')">信号分析</div>
         <div class="nav-item" onclick="navTo('p6')">回测日志</div>
@@ -223,7 +224,7 @@ window.onload = function() {
     document.getElementById('meta-strategy').innerText = rawData.metadata.strategy;
     document.getElementById('meta-capital').innerText = rawData.metadata.capital.toLocaleString();
     document.getElementById('meta-range').innerText = `${rawData.metadata.start} ~ ${rawData.metadata.end}`;
-    document.getElementById('meta-days').innerText = `${rawData.stats.total_days}个交易日`;
+    document.getElementById('meta-days').innerText = `${rawData.stats.total_days}天`;
     
     // 2. 初始化日期选择器范围
     const allDaily = rawData.daily_data;
@@ -245,11 +246,6 @@ window.onload = function() {
         if (pageId === 'p1') renderRCharts();
         if (pageId === 'p5') renderKlineChart();
         if (pageId === 'p4') renderTradesTable();
-    }
-
-    // P6: 日志
-    if (rawData.logs) {
-        document.getElementById('log-viewer').innerText = rawData.logs.join('\n');
     }
 };
 
@@ -328,12 +324,12 @@ window.onload = function() {
         ['sharpe_ratio', '夏普比率', '', stats],
         ['total_trade_count', '总交易次数', '', stats],
         ['daily_return', '日均收益', '%', stats],
+        ['win_rate', '胜率', '%', tharpStats], // 确保胜率指标存在
         ['return_std', '收益标准差', '%', stats]
     ];
     
     // 定义R倍数相关指标
     const rMetrics = [
-        ['win_rate', '胜率', '%', tharpStats], // 确保胜率指标存在
         ['mean_r', 'R均值', '', tharpStats],
         ['std_r', 'R标准差', '', tharpStats],
         ['sqn', 'SQN评分', '', tharpStats],
@@ -489,7 +485,7 @@ window.onload = function() {
     function renderDailyTable() {
         const tbody = document.getElementById('table-daily-snap');
         // 只显示最后100条防止卡顿，反序
-        const displayData = filteredDaily.slice();
+        const displayData = filteredDaily.slice().reverse();
         
         const html = displayData.map(d => `
             <tr>

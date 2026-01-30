@@ -67,7 +67,7 @@
         .key-stat-val { font-weight: bold; color: #333; }
         
         /* P3 统计网格 */
-        .stats-matrix { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px;}
+        .stats-matrix { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
         .matrix-item { background: #fcfcfc; border: 1px solid #f0f0f0; padding: 10px; text-align: center; border-radius: 4px; }
         .matrix-label { font-size: 12px; color: #999; margin-bottom: 5px; }
         .matrix-val { font-size: 18px; font-weight: bold; color: #444; }
@@ -87,6 +87,7 @@
         <div class="logo-area">策略回测报告</div>
         <div class="nav-item active" onclick="navTo('p1')">绩效概览</div>
         <div class="nav-item" onclick="navTo('p2')">持仓分析</div>
+        <div class="nav-item" onclick="navTo('p3')">Tharp统计</div>
         <div class="nav-item" onclick="navTo('p4')">每日明细</div>
         <div class="nav-item" onclick="navTo('p5')">信号分析</div>
         <div class="nav-item" onclick="navTo('p6')">回测日志</div>
@@ -98,7 +99,6 @@
                 <span>策略: <b id="meta-strategy">--</b></span>
                 <span>期初资金: <b id="meta-capital">--</b></span>
                 <span>回测时间: <b id="meta-range">--</b></span>
-                <span><b id="meta-days">--</b></span>
             </div>
             <div class="filter-controls">
                 <select id="range-preset" class="filter-select" onchange="applyPreset(this.value)">
@@ -223,7 +223,6 @@ window.onload = function() {
     document.getElementById('meta-strategy').innerText = rawData.metadata.strategy;
     document.getElementById('meta-capital').innerText = rawData.metadata.capital.toLocaleString();
     document.getElementById('meta-range').innerText = `${rawData.metadata.start} ~ ${rawData.metadata.end}`;
-    document.getElementById('meta-days').innerText = `${rawData.stats.total_days}个交易日`;
     
     // 2. 初始化日期选择器范围
     const allDaily = rawData.daily_data;
@@ -245,11 +244,6 @@ window.onload = function() {
         if (pageId === 'p1') renderRCharts();
         if (pageId === 'p5') renderKlineChart();
         if (pageId === 'p4') renderTradesTable();
-    }
-
-    // P6: 日志
-    if (rawData.logs) {
-        document.getElementById('log-viewer').innerText = rawData.logs.join('\n');
     }
 };
 
@@ -315,71 +309,61 @@ window.onload = function() {
     // --- 渲染逻辑区 ---
 
     function renderStaticContent() {
-    // 绩效指标矩阵：合并统计指标和Tharp指标
-    const stats = rawData.stats;
-    const tharpStats = rawData.tharp_stats || {};
-    const matrixContainer = document.getElementById('stats-matrix');
-    
-    // 定义统计指标
-    const statsMetrics = [
-        ['total_return', '总收益率', '%', stats],
-        ['annual_return', '年化收益', '%', stats],
-        ['max_drawdown', '最大回撤', '', stats],
-        ['sharpe_ratio', '夏普比率', '', stats],
-        ['total_trade_count', '总交易次数', '', stats],
-        ['daily_return', '日均收益', '%', stats],
-        ['return_std', '收益标准差', '%', stats]
-    ];
-    
-    // 定义R倍数相关指标
-    const rMetrics = [
-        ['win_rate', '胜率', '%', tharpStats], // 确保胜率指标存在
-        ['mean_r', 'R均值', '', tharpStats],
-        ['std_r', 'R标准差', '', tharpStats],
-        ['sqn', 'SQN评分', '', tharpStats],
-        ['total_r', '累计总R', '', tharpStats]
-    ];
-    
-    let html = '';
-    
-    // 渲染统计指标
-    statsMetrics.forEach(([key, label, suffix, dataSource]) => {
-        let val = dataSource[key];
-        if (val === undefined) return;
-        if (typeof val === 'number') {
-            // 对于总交易次数和回测天数，显示为整数
-            if (key === 'total_trade_count' || key === 'total_days') {
-                val = Math.round(val);
-            } else {
-                val = val.toFixed(2); // 其他指标保留2位小数
-            }
+        // 绩效指标矩阵：合并统计指标和Tharp指标
+        const stats = rawData.stats;
+        const tharpStats = rawData.tharp_stats || {};
+        const matrixContainer = document.getElementById('stats-matrix');
+        
+        // 定义展示顺序和格式，合并统计指标和Tharp指标
+        const metrics = [
+            // 统计指标
+            ['total_return', '总收益率', '%', stats],
+            ['annual_return', '年化收益', '%', stats],
+            ['max_drawdown', '最大回撤', '', stats],
+            ['sharpe_ratio', '夏普比率', '', stats],
+            ['total_trade_count', '总交易次数', '', stats],
+            ['total_days', '回测天数', '', stats],
+            ['daily_return', '日均收益', '%', stats],
+            ['return_std', '收益标准差', '%', stats],
+            ['winning_rate', '胜率', '%', stats],
+            // R倍数相关指标
+            ['mean_r', 'R均值', '', tharpStats],
+            ['std_r', 'R标准差', '', tharpStats],
+            ['sqn', 'SQN评分', '', tharpStats],
+            ['total_r', '累计总R', '', tharpStats]
+        ];
+        
+        let html = '';
+        metrics.forEach(([key, label, suffix, dataSource]) => {
+            let val = dataSource[key];
+            if (val === undefined) return;
+            if (typeof val === 'number') val = val.toFixed(2); // 大部分保留2位小数
+            html += `
+                <div class="matrix-item">
+                    <div class="matrix-label">${label}</div>
+                    <div class="matrix-val">${val} ${suffix}</div>
+                </div>
+            `;
+        });
+        matrixContainer.innerHTML = html;
+        // P6: 日志
+        if (rawData.logs) {
+            document.getElementById('log-viewer').innerText = rawData.logs.join('\n');
         }
-        html += `
-            <div class="matrix-item">
-                <div class="matrix-label">${label}</div>
-                <div class="matrix-val">${val} ${suffix}</div>
-            </div>
-        `;
-    });
-    
-    // 添加一个空的div作为换行
-    html += `<div style="grid-column: 1 / -1; height: 10px;"></div>`;
-    
-    // 渲染R倍数相关指标
-    rMetrics.forEach(([key, label, suffix, dataSource]) => {
-        let val = dataSource[key];
-        if (val === undefined) return;
-        if (typeof val === 'number') val = val.toFixed(2); // 保留2位小数
-        html += `
-            <div class="matrix-item">
-                <div class="matrix-label">${label}</div>
-                <div class="matrix-val">${val} ${suffix}</div>
-            </div>
-        `;
-    });
-    
-    matrixContainer.innerHTML = html;
-}
+
+        // P5: 交易记录表
+        const tradesHtml = rawData.trades.map(t => `
+            <tr>
+                <td>${t.datetime}</td>
+                <td>${t.symbol}</td>
+                <td class="${t.direction==='多'?'text-red':'text-green'}">${t.direction}</td>
+                <td>${t.offset}</td>
+                <td>${t.price}</td>
+                <td>${t.volume}</td>
+            </tr>
+        `).join('');
+        document.getElementById('table-trades').innerHTML = tradesHtml;
+    }
 
     function initEchart(domId) {
         if (charts[domId]) charts[domId].dispose();
@@ -489,7 +473,7 @@ window.onload = function() {
     function renderDailyTable() {
         const tbody = document.getElementById('table-daily-snap');
         // 只显示最后100条防止卡顿，反序
-        const displayData = filteredDaily.slice();
+        const displayData = filteredDaily.slice().reverse();
         
         const html = displayData.map(d => `
             <tr>
