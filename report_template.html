@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>回测分析报告 - 掘金量化V3风格</title>
+    <title>回测分析报告</title>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <style>
         :root {
@@ -87,7 +87,7 @@
         <div class="logo-area">策略回测报告</div>
         <div class="nav-item active" onclick="navTo('p1')">绩效概览</div>
         <div class="nav-item" onclick="navTo('p2')">持仓分析</div>
-        <div class="nav-item" onclick="navTo('p3')">交易统计</div>
+        <div class="nav-item" onclick="navTo('p3')">Tharp统计</div>
         <div class="nav-item" onclick="navTo('p4')">每日明细</div>
         <div class="nav-item" onclick="navTo('p5')">信号分析</div>
         <div class="nav-item" onclick="navTo('p6')">回测日志</div>
@@ -157,8 +157,16 @@
 
             <div id="p3" class="page">
                 <div class="card">
-                    <div class="card-header">详细统计指标</div>
-                    <div id="stats-matrix" class="stats-matrix"></div>
+                    <div class="card-header">Van Tharp (R倍数) 统计指标</div>
+                    <div id="tharp-stats-matrix" class="stats-matrix"></div>
+                </div>
+                <div class="card">
+                    <div class="card-header">R倍数分布直方图 (0.5R 间隔)</div>
+                    <div id="chart-r-dist" class="chart-box" style="height: 350px;"></div>
+                </div>
+                <div class="card">
+                    <div class="card-header">R倍数序列图</div>
+                    <div id="chart-r-sequence" class="chart-box" style="height: 300px;"></div>
                 </div>
             </div>
 
@@ -551,7 +559,58 @@
         
         chart.setOption(option);
     }
+
+    // 在 window.onload 中增加对 Tharp 数据的渲染调用
+    // 渲染 Tharp 矩阵
+    function renderTharpContent() {
+        const ts = rawData.tharp_stats;
+        if(!ts) return;
+        const matrix = [
+            ['win_rate', 'R胜率', '%'],
+            ['mean_r', 'R均值', ''],
+            ['std_r', 'R标准差', ''],
+            ['sqn', 'SQN评分', ''],
+            ['total_r', '累计总R', '']
+        ];
+        document.getElementById('tharp-stats-matrix').innerHTML = matrix.map(([key, label, suffix]) => `
+            <div class="matrix-item">
+                <div class="matrix-label">${label}</div>
+                <div class="matrix-val">${Number(ts[key]||0).toFixed(2)} ${suffix}</div>
+            </div>
+        `).join('');
+
+        // 渲染 R 分布图
+        const rVals = rawData.r_data.map(x => x.r_value);
+        const bins = {};
+        rVals.forEach(v => {
+            const b = Math.floor(v / 0.5) * 0.5;
+            bins[b] = (bins[b] || 0) + 1;
+        });
+        const keys = Object.keys(bins).map(Number).sort((a,b) => a-b);
+        const chartDist = initEchart('chart-r-dist');
+        chartDist.setOption({
+            tooltip: { trigger: 'axis' },
+            xAxis: { type: 'category', data: keys.map(k => k.toFixed(1) + 'R'), name: '区间' },
+            yAxis: { type: 'value', name: '笔数' },
+            series: [{ type: 'bar', data: keys.map(k => bins[k]), itemStyle: { color: '#3281f8' } }]
+        });
+
+        // 渲染 R 序列图
+        const chartSeq = initEchart('chart-r-sequence');
+        chartSeq.setOption({
+            tooltip: { trigger: 'axis' },
+            xAxis: { type: 'category', data: rawData.r_data.map(x => x.datetime) },
+            yAxis: { type: 'value', name: 'R倍数' },
+            series: [{ 
+                type: 'bar', 
+                data: rVals, 
+                itemStyle: { color: (p) => p.value >= 0 ? '#eb4d3d' : '#37b366' } 
+            }]
+        });
+    }
+    // 记得在 navTo('p3') 时调用此渲染函数
     
+
     // 窗口大小改变时重绘
     window.onresize = function() {
         Object.values(charts).forEach(c => c.resize());
