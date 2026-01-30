@@ -64,7 +64,7 @@ def run_backtest(target_symbol: str):
     print(f"主力期间确认: {start_date} 至 {end_date}")
 
     # 2. 从 DolphinDB 加载 K 线数据
-    # 注意：这里根据你的逻辑从 dfs://vnpy/bars 加载数据
+    # 注意：这里根据你的逻辑从 dfs://vnpy/bar 加载数据
     script_data = f"""
     t = loadTable("dfs://vnpy", "bar")
     select * from t where symbol like '{target_symbol}%', 
@@ -114,6 +114,18 @@ def run_backtest(target_symbol: str):
     engine.run_backtesting()
     df_daily = engine.calculate_result()
     stats = engine.calculate_statistics()
+    
+    # 获取 R 倍数数据并计算 Tharp 指标
+    strategy_inst = engine.strategy
+    r_multiples = strategy_inst.r_multiples
+    tharp_stats = {}
+    if r_multiples:
+        r_vals = [x['r_value'] for x in r_multiples]
+        tharp_stats['win_rate'] = len([r for r in r_vals if r > 0]) / len(r_vals) * 100
+        tharp_stats['mean_r'] = np.mean(r_vals)
+        tharp_stats['std_r'] = np.std(r_vals)
+        tharp_stats['sqn'] = np.sqrt(len(r_vals)) * (tharp_stats['mean_r'] / tharp_stats['std_r']) if tharp_stats['std_r'] != 0 else 0
+        tharp_stats['total_r'] = np.sum(r_vals)
 
     # 5. 终端输出
     print("\n" + "="*50)
@@ -133,6 +145,8 @@ def run_backtest(target_symbol: str):
             "capital": 100000
         },
         "stats": stats,
+        "tharp_stats": tharp_stats,
+        "r_data": r_multiples,
         "daily_data": [
             {
                 "date": d.strftime("%Y-%m-%d"),
@@ -154,7 +168,7 @@ def run_backtest(target_symbol: str):
             [b.datetime.strftime("%Y-%m-%d %H:%M:%S"), b.open_price, b.close_price, b.low_price, b.high_price, b.volume]
             for b in history_data
         ],
-        # "logs": [f"{log}" for log in engine.strategy.get_log() if hasattr(engine.strategy, 'get_log')] if hasattr(engine, 'strategy') else []
+        "logs": strategy_inst.get_log()
     }
 
     # 7. 保存文件并导出
