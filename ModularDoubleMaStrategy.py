@@ -18,6 +18,7 @@ class ModularDoubleMaStrategy(CtaTemplate):
     atr_window = 14
     atr_multi = 3.0
     risk_percent = 0.01  
+    position_limit = 100  # 仓位上限  
     
     # 变量定义
     long_stop = 0
@@ -85,15 +86,61 @@ class ModularDoubleMaStrategy(CtaTemplate):
         elif ma_fast < ma_slow and prev_ma_fast >= prev_ma_slow: return -1
         return 0
 
+    def calculate_position_size(self, atr):
+        """计算仓位大小
+        
+        Args:
+            atr: 平均真实波动幅度
+            
+        Returns:
+            int: 计算后的仓位大小
+        """
+        if atr == 0:
+            return 0
+        
+        # 获取当前总资金
+        # 在vnpy中，可以通过cta_engine获取当前资金
+        # 但为了简化，我们可以使用一个变量来跟踪当前资金
+        # 这里假设cta_engine有get_all_positions方法来获取当前资金
+        # 注意：不同版本的vnpy可能有不同的获取资金的方式
+        # 这里使用一种通用的方法
+        try:
+            # 尝试获取当前总资金
+            if hasattr(self, 'cta_engine') and hasattr(self.cta_engine, 'get_all_positions'):
+                # 这种方式适用于某些vnpy版本
+                current_capital = self.cta_engine.get_all_positions().get('capital', self.init_capital)
+            elif hasattr(self, 'capital'):
+                # 这种方式适用于某些自定义回测引擎
+                current_capital = self.capital
+            else:
+                # 如果无法获取当前资金，使用初始资金作为备选
+                current_capital = self.init_capital
+        except:
+            # 如果出现异常，使用初始资金
+            current_capital = self.init_capital
+        
+        # 根据Van Tharp的1%风险模型计算仓位，使用当前总资金
+        risk_amount = current_capital * self.risk_percent
+        risk_per_share = atr * self.atr_multi
+        
+        # 计算理论仓位大小
+        theoretical_size = int(risk_amount / risk_per_share)
+        
+        # 应用仓位上限
+        position_size = min(theoretical_size, self.position_limit)
+        
+        return max(position_size, 0)
+
     def execute_open(self, bar: BarData, direction: int):
         atr = self.am.atr(self.atr_window, array=False)
         if atr == 0: return
 
-        risk_amount = self.init_capital * self.risk_percent
-        risk_per_share = atr * self.atr_multi
-        size = int(risk_amount / risk_per_share)
+        size = self.calculate_position_size(atr)
         
         if size <= 0: return
+
+        # 重新计算风险参数，因为calculate_position_size方法中没有返回这个值
+        risk_per_share = atr * self.atr_multi
 
         if direction == 1:
             self.buy(bar.close_price + 1, size)
