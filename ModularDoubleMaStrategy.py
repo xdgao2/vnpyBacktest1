@@ -26,9 +26,19 @@ class ModularDoubleMaStrategy(CtaTemplate):
     def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
         super().__init__(cta_engine, strategy_name, vt_symbol, setting)
         self.am = ArrayManager(size=150) 
-        self.r_multiples = []
+        self.r_multiples = [] # 存储 {"datetime": str, "r_value": float}
         self.entry_price = 0
         self.initial_risk = 0
+        self.strategy_logs = []
+
+    def write_log(self, msg: str):
+        super().write_log(msg)
+        # 将日志保存到内存，方便报告读取
+        self.strategy_logs.append(f"{datetime.now().strftime('%H:%M:%S')} - {msg}")
+
+    def get_log(self):
+        """供回测引擎调用"""
+        return self.strategy_logs
 
     def on_init(self):
         self.write_log("策略初始化")
@@ -64,7 +74,7 @@ class ModularDoubleMaStrategy(CtaTemplate):
     def check_entry_condition(self):
         ma_fast = self.am.sma(self.fast_window, array=False)
         ma_slow = self.am.sma(self.slow_window, array=False)
-        
+        if len(ma_fast_array) < 2: return 0
         ma_fast_array = self.am.sma(self.fast_window, array=True)
         ma_slow_array = self.am.sma(self.slow_window, array=True)
 
@@ -103,16 +113,19 @@ class ModularDoubleMaStrategy(CtaTemplate):
             self.long_stop = max(self.long_stop, bar.high_price - self.atr_multi * atr)
             if bar.close_price <= self.long_stop:
                 self.sell(bar.close_price - 1, abs(self.pos))
-                self.record_r_multiple(bar.close_price)
+                self.record_r_multiple(bar.close_price, bar.datetime)
                 
         elif self.pos < 0:
             self.short_stop = min(self.short_stop, bar.low_price + self.atr_multi * atr)
             if bar.close_price >= self.short_stop:
                 self.cover(bar.close_price + 1, abs(self.pos))
-                self.record_r_multiple(bar.close_price)
+                self.record_r_multiple(bar.close_price, bar.datetime)
 
-    def record_r_multiple(self, exit_price):
+    def record_r_multiple(self, exit_price, dt):
         if self.initial_risk == 0: return
         profit = (exit_price - self.entry_price) if self.pos > 0 else (self.entry_price - exit_price)
         r_val = profit / self.initial_risk
-        self.r_multiples.append(r_val)
+        self.r_multiples.append({
+            "datetime": dt.strftime("%Y-%m-%d %H:%M:%S"),
+            "r_value": round(r_val, 4)
+        })
