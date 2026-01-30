@@ -1,8 +1,9 @@
+
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>回测分析报告</title>
+    <title>回测分析报告 - 掘金量化V3风格</title>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <style>
         :root {
@@ -87,7 +88,7 @@
         <div class="logo-area">策略回测报告</div>
         <div class="nav-item active" onclick="navTo('p1')">绩效概览</div>
         <div class="nav-item" onclick="navTo('p2')">持仓分析</div>
-        <div class="nav-item" onclick="navTo('p3')">Tharp统计</div>
+        <div class="nav-item" onclick="navTo('p3')">交易统计</div>
         <div class="nav-item" onclick="navTo('p4')">每日明细</div>
         <div class="nav-item" onclick="navTo('p5')">信号分析</div>
         <div class="nav-item" onclick="navTo('p6')">回测日志</div>
@@ -120,10 +121,6 @@
                 <div class="overview-grid">
                     <div class="left-charts">
                         <div class="card">
-                            <div class="card-header">统计指标</div>
-                            <div id="stats-matrix" class="stats-matrix"></div>
-                        </div>
-                        <div class="card">
                             <div class="card-header">累计收益</div>
                             <div id="chart-balance" class="chart-box"></div>
                         </div>
@@ -135,18 +132,10 @@
                             <div class="card-header">每日收益率</div>
                             <div id="chart-daily-pnl" class="chart-box" style="height: 200px;"></div>
                         </div>
-                    <div class="card">
-                        <div class="card-header">R倍数分布直方图 (0.5R 间隔)</div>
-                        <div id="chart-r-dist" class="chart-box" style="height: 350px;"></div>
-                    </div>
-                    <div class="card">
-                        <div class="card-header">R倍数序列图</div>
-                        <div id="chart-r-sequence" class="chart-box" style="height: 300px;"></div>
-                    </div>
                     </div>
                     <div class="stats-sidebar">
                         <div class="card">
-                            <div class="card-header">Tharp指标</div>
+                            <div class="card-header">核心指标</div>
                             <div id="key-stats-list"></div>
                         </div>
                     </div>
@@ -168,6 +157,10 @@
             </div>
 
             <div id="p3" class="page">
+                <div class="card">
+                    <div class="card-header">详细统计指标</div>
+                    <div id="stats-matrix" class="stats-matrix"></div>
+                </div>
             </div>
 
             <div id="p4" class="page">
@@ -219,39 +212,30 @@
     let charts = {}; // 存储 echarts 实例
 
     // --- 初始化 ---
-window.onload = function() {
-    if (!rawData) {
-        alert("未找到数据文件 data.js，请确认回测已运行。");
-        return;
-    }
-    
-    // 1. 填充头部元数据
-    document.getElementById('meta-strategy').innerText = rawData.metadata.strategy;
-    document.getElementById('meta-capital').innerText = rawData.metadata.capital.toLocaleString();
-    document.getElementById('meta-range').innerText = `${rawData.metadata.start} ~ ${rawData.metadata.end}`;
-    
-    // 2. 初始化日期选择器范围
-    const allDaily = rawData.daily_data;
-    if(allDaily.length > 0) {
-        document.getElementById('date-start').value = allDaily[0].date;
-        document.getElementById('date-end').value = allDaily[allDaily.length-1].date;
-    }
+    window.onload = function() {
+        if (!rawData) {
+            alert("未找到数据文件 data.js，请确认回测已运行。");
+            return;
+        }
+        
+        // 1. 填充头部元数据
+        document.getElementById('meta-strategy').innerText = rawData.metadata.strategy;
+        document.getElementById('meta-capital').innerText = rawData.metadata.capital.toLocaleString();
+        document.getElementById('meta-range').innerText = `${rawData.metadata.start} ~ ${rawData.metadata.end}`;
+        
+        // 2. 初始化日期选择器范围
+        const allDaily = rawData.daily_data;
+        if(allDaily.length > 0) {
+            document.getElementById('date-start').value = allDaily[0].date;
+            document.getElementById('date-end').value = allDaily[allDaily.length-1].date;
+        }
 
-    // 3. 渲染非时间相关内容 (日志, 统计概览)
-    renderStaticContent();
-    
-    // 4. 触发首次计算和渲染 (时间相关)
-    applyCustomDate(); 
-    
-    // 5. 初始化当前激活页面的图表
-    const activePage = document.querySelector('.page.active');
-    if (activePage) {
-        const pageId = activePage.id;
-        if (pageId === 'p1') renderRCharts();
-        if (pageId === 'p5') renderKlineChart();
-        if (pageId === 'p4') renderTradesTable();
-    }
-};
+        // 3. 渲染非时间相关内容 (日志, 统计概览)
+        renderStaticContent();
+        
+        // 4. 触发首次计算和渲染 (时间相关)
+        applyCustomDate(); 
+    };
 
     // --- 导航逻辑 ---
     function navTo(pageId) {
@@ -263,14 +247,11 @@ window.onload = function() {
         event.currentTarget.classList.add('active');
         document.getElementById(pageId).classList.add('active');
 
-        if (pageId === 'p4') renderTradesTable();
-
         // 核心：ECharts 在 display:none 容器中无法正确获取尺寸
         // 切换后必须 resize，且如果是首次显示的图表需要初始化
         setTimeout(() => {
             Object.values(charts).forEach(c => c.resize());
             if (pageId === 'p5') renderKlineChart(); // 信号图数据量大，按需加载
-                if (pageId === 'p1') renderRCharts(); // R 统计图表
         }, 50);
     }
 
@@ -346,22 +327,15 @@ window.onload = function() {
         });
         matrixContainer.innerHTML = html;
 
-// P1: 侧边核心指标 (替换为R倍数相关指标)
-const tharpStats = rawData.tharp_stats || {};
-const rMetrics = [
-    ['win_rate', '胜率', '%'],
-    ['mean_r', 'R均值', ''],
-    ['std_r', 'R标准差', ''],
-    ['sqn', 'SQN评分', ''],
-    ['total_r', '累计总R', '']
-];
-const keyStatsHtml = rMetrics.map(([key, label, suffix]) => `
-    <div class="key-stat-item">
-        <span class="key-stat-label">${label}</span>
-        <span class="key-stat-val">${Number(tharpStats[key] || 0).toFixed(2)} ${suffix}</span>
-    </div>
-`).join('');
-document.getElementById('key-stats-list').innerHTML = keyStatsHtml;
+        // P1: 侧边核心指标 (取前几个)
+        const keyStatsHtml = metrics.slice(0, 6).map(([key, label, suffix]) => `
+            <div class="key-stat-item">
+                <span class="key-stat-label">${label}</span>
+                <span class="key-stat-val">${Number(stats[key]).toFixed(2)} ${suffix}</span>
+            </div>
+        `).join('');
+        document.getElementById('key-stats-list').innerHTML = keyStatsHtml;
+
         // P6: 日志
         if (rawData.logs) {
             document.getElementById('log-viewer').innerText = rawData.logs.join('\n');
@@ -469,23 +443,6 @@ document.getElementById('key-stats-list').innerHTML = keyStatsHtml;
         });
     }
 
-    function renderTradesTable() {
-        const tbody = document.getElementById('table-trades');
-        const trades = rawData.trades;
-        
-        const html = trades.map(t => `
-            <tr>
-                <td>${t.datetime}</td>
-                <td>${rawData.metadata.symbol}</td>
-                <td class="${t.direction==='多'?'text-red':'text-green'}">${t.direction}</td>
-                <td>${t.offset}</td>
-                <td>${t.price}</td>
-                <td>${t.volume}</td>
-            </tr>
-        `).join('');
-        tbody.innerHTML = html;
-    }
-
     function renderDailyTable() {
         const tbody = document.getElementById('table-daily-snap');
         // 只显示最后100条防止卡顿，反序
@@ -497,7 +454,7 @@ document.getElementById('key-stats-list').innerHTML = keyStatsHtml;
                 <td>${d.balance.toFixed(2)}</td>
                 <td class="${d.net_pnl >= 0 ? 'text-red' : 'text-green'}">${d.net_pnl.toFixed(2)}</td>
                 <td>${d.drawdown.toFixed(2)}</td>
-                <td>--</td> <!-- 手续费/滑点数据不可用 -->
+                <td>${(d.commission + d.slippage).toFixed(2)}</td>
             </tr>
         `).join('');
         tbody.innerHTML = html;
@@ -595,110 +552,7 @@ document.getElementById('key-stats-list').innerHTML = keyStatsHtml;
         
         chart.setOption(option);
     }
-
-
-    function renderCoreStats() {
-        const s = data.stats;
-        const html = [
-            ['total_return', '总收益率', '%'], ['annual_return', '年化收益', '%'],
-            ['max_drawdown', '最大回撤', '%'], ['sharpe_ratio', '夏普比率', ''],
-            ['total_trade_count', '总交易数', '']
-        ].map(k => `
-            <div class="matrix-item">
-                <div class="matrix-label">${k[1]}</div>
-                <div class="matrix-val">${Number(s[k[0]]||0).toFixed(2)}${k[2]}</div>
-            </div>
-        `).join('');
-        document.getElementById('core-stats').innerHTML = html;
-    }
-
-function renderRCharts() {
-    // R倍数分布直方图
-    const chartRDist = initEchart('chart-r-dist');
-    const rData = rawData.r_data;
-    const rValues = rData.map(d => d.r_value);
     
-    // 计算直方图数据
-    const binSize = 0.5;
-    const minR = Math.floor(Math.min(...rValues) / binSize) * binSize;
-    const maxR = Math.ceil(Math.max(...rValues) / binSize) * binSize;
-    const bins = [];
-    for (let i = minR; i <= maxR; i += binSize) {
-        bins.push(i);
-    }
-    
-    const histogramData = new Array(bins.length - 1).fill(0);
-    rValues.forEach(r => {
-        const binIndex = Math.floor((r - minR) / binSize);
-        if (binIndex >= 0 && binIndex < histogramData.length) {
-            histogramData[binIndex]++;
-        }
-    });
-    
-    const binLabels = bins.slice(0, -1).map((bin, i) => `${bin.toFixed(1)}~${bins[i+1].toFixed(1)}`);
-    
-    chartRDist.setOption({
-        tooltip: { trigger: 'axis' },
-        grid: { left: 50, right: 20, top: 20, bottom: 50 },
-        xAxis: { 
-            type: 'category', 
-            data: binLabels,
-            axisLabel: { rotate: 45 }
-        },
-        yAxis: { type: 'value' },
-        series: [{
-            name: 'R倍数分布', type: 'bar',
-            data: histogramData,
-            itemStyle: { color: '#3281f8' }
-        }]
-    });
-    
-    // R倍数序列图
-    const chartRSeq = initEchart('chart-r-sequence');
-    chartRSeq.setOption({
-        tooltip: { trigger: 'axis' },
-        grid: { left: 50, right: 20, top: 20, bottom: 25 },
-        xAxis: { 
-            type: 'category', 
-            data: rData.map(d => d.datetime),
-            axisLabel: { show: false }
-        },
-        yAxis: { type: 'value' },
-        series: [{
-            name: 'R倍数', type: 'bar',
-            data: rData.map(d => d.r_value),
-            itemStyle: {
-                color: function(params) {
-                    return params.value >= 0 ? '#37b366' : '#eb4d3d';
-                }
-            }
-        }]
-    });
-}
-    // 在 window.onload 中增加对 Tharp 数据的渲染调用
-    // 渲染 Tharp 矩阵
-    function renderTharpContent() {
-        const ts = rawData.tharp_stats;
-        if(!ts) return;
-        const matrix = [
-            ['win_rate', '胜率', '%'],
-            ['mean_r', 'R均值', ''],
-            ['std_r', 'R标准差', ''],
-            ['sqn', 'SQN评分', ''],
-            ['total_r', '累计总R', '']
-        ];
-        document.getElementById('stats-matrix').innerHTML = matrix.map(([key, label, suffix]) => `
-            <div class="matrix-item">
-                <div class="matrix-label">${label}</div>
-                <div class="matrix-val">${Number(ts[key]||0).toFixed(2)} ${suffix}</div>
-            </div>
-        `).join('');
-
-        renderRCharts();
-    }
-    // 记得在 navTo('p3') 时调用此渲染函数
-    
-
     // 窗口大小改变时重绘
     window.onresize = function() {
         Object.values(charts).forEach(c => c.resize());

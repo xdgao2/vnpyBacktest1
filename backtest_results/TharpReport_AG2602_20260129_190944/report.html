@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>策略回测报告 - Tharp 统计</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <style>
+        :root { --sidebar-bg: #2b323a; --active-blue: #3281f8; --bg-gray: #f2f4f7; --red: #eb4d3d; --green: #37b366; --border: #e6e9ed; }
+        body, html { margin: 0; padding: 0; height: 100%; font-family: sans-serif; background: var(--bg-gray); overflow: hidden; }
+        .app-container { display: flex; height: 100vh; }
+        .sidebar { width: 160px; background: var(--sidebar-bg); color: #b0b6c1; flex-shrink: 0; }
+        .nav-item { padding: 15px 20px; cursor: pointer; font-size: 13px; border-left: 3px solid transparent; }
+        .nav-item.active { background: #262c34; color: white; border-left-color: var(--active-blue); font-weight: bold; }
+        .main-content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+        .top-bar { height: 50px; background: white; border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 20px; font-size: 13px; }
+        .page-scroll { flex: 1; overflow-y: auto; padding: 20px; }
+        .page { display: none; } .page.active { display: block; }
+        .card { background: white; border-radius: 4px; padding: 15px; margin-bottom: 15px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .card-header { font-size: 14px; font-weight: bold; border-left: 3px solid var(--active-blue); padding-left: 10px; margin-bottom: 15px; }
+        .stats-matrix { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px; }
+        .matrix-item { background: #fcfcfc; border: 1px solid #f0f0f0; padding: 15px; text-align: center; border-radius: 4px; }
+        .matrix-label { font-size: 12px; color: #999; margin-bottom: 5px; }
+        .matrix-val { font-size: 18px; font-weight: bold; color: #333; }
+        .chart-box { width: 100%; height: 350px; }
+    </style>
+</head>
+<body>
+<div class="app-container">
+    <div class="sidebar">
+        <div style="padding: 20px; color: white; font-weight: bold;">回测报告</div>
+        <div class="nav-item active" onclick="navTo('p1')">绩效概览</div>
+        <div class="nav-item" onclick="navTo('p3')">Tharp统计</div>
+        <div class="nav-item" onclick="navTo('p6')">回测日志</div>
+    </div>
+    <div class="main-content">
+        <div class="top-bar" id="meta-info">加载中...</div>
+        <div class="page-scroll">
+            <div id="p1" class="page active">
+                <div class="card">
+                    <div class="card-header">核心指标</div>
+                    <div id="core-stats" class="stats-matrix"></div>
+                </div>
+                <div class="card"><div class="card-header">资产净值</div><div id="chart-balance" class="chart-box"></div></div>
+            </div>
+            <div id="p3" class="page">
+                <div class="card">
+                    <div class="card-header">Van Tharp (R倍数) 统计指标</div>
+                    <div id="tharp-matrix" class="stats-matrix"></div>
+                </div>
+                <div class="card">
+                    <div class="card-header">R倍数分布直方图 (0.5R 间隔)</div>
+                    <div id="chart-r-dist" class="chart-box"></div>
+                </div>
+                <div class="card">
+                    <div class="card-header">R倍数时间序列</div>
+                    <div id="chart-r-line" class="chart-box"></div>
+                </div>
+            </div>
+            <div id="p6" class="page">
+                <div class="card"><pre id="log-viewer" style="font-size:12px;"></pre></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="data.js"></script>
+<script>
+    const data = window.BACKTEST_DATA;
+    let charts = {};
+
+    function navTo(id) {
+        document.querySelectorAll('.nav-item').forEach(e => e.classList.remove('active'));
+        document.querySelectorAll('.page').forEach(e => e.classList.remove('active'));
+        event.currentTarget.classList.add('active');
+        document.getElementById(id).classList.add('active');
+        setTimeout(() => { Object.values(charts).forEach(c => c.resize()); }, 50);
+    }
+
+    window.onload = function() {
+        document.getElementById('meta-info').innerText = `策略: ${data.metadata.strategy} | 品种: ${data.metadata.symbol} | 范围: ${data.metadata.start} ~ ${data.metadata.end}`;
+        renderCoreStats();
+        renderTharpPage();
+        renderBalanceChart();
+        document.getElementById('log-viewer').innerText = data.logs.join('\n');
+    };
+
+    function renderCoreStats() {
+        const s = data.stats;
+        const html = [
+            ['total_return', '总收益率', '%'], ['annual_return', '年化收益', '%'],
+            ['max_drawdown', '最大回撤', '%'], ['sharpe_ratio', '夏普比率', ''],
+            ['total_trade_count', '总交易数', '']
+        ].map(k => `
+            <div class="matrix-item">
+                <div class="matrix-label">${k[1]}</div>
+                <div class="matrix-val">${Number(s[k[0]]||0).toFixed(2)}${k[2]}</div>
+            </div>
+        `).join('');
+        document.getElementById('core-stats').innerHTML = html;
+    }
+
+    function renderTharpPage() {
+        const ts = data.tharp_stats;
+        if(!ts) return;
+        
+        // 1. 填充矩阵
+        const html = [
+            ['winning_rate', 'R胜率', '%'], ['sqn', 'SQN值', ''],
+            ['mean_r', 'R倍数均值', ''], ['std_r', 'R标准差', ''],
+            ['last_return_r', '最后收益(R)', ''], ['max_drawdown_r', '最大回撤(R)', ''],
+            ['monthly_trades', '月均操作', '次']
+        ].map(k => `
+            <div class="matrix-item">
+                <div class="matrix-label">${k[1]}</div>
+                <div class="matrix-val">${Number(ts[k[0]]||0).toFixed(2)}${k[2]}</div>
+            </div>
+        `).join('');
+        document.getElementById('tharp-matrix').innerHTML = html;
+
+        // 2. R分布图 (0.5R 间隔)
+        const rVals = data.r_data.map(x => x.r_value);
+        const bins = {};
+        rVals.forEach(v => {
+            const b = Math.floor(v / 0.5) * 0.5;
+            bins[b] = (bins[b] || 0) + 1;
+        });
+        const sortedKeys = Object.keys(bins).map(Number).sort((a,b)=>a-b);
+        const chartDist = echarts.init(document.getElementById('chart-r-dist'));
+        charts['rdist'] = chartDist;
+        chartDist.setOption({
+            tooltip: {},
+            xAxis: { type: 'category', data: sortedKeys.map(k => k.toFixed(1)+'R'), name: '区间' },
+            yAxis: { type: 'value', name: '笔数' },
+            series: [{ type: 'bar', data: sortedKeys.map(k => bins[k]), itemStyle: {color:'#3281f8'} }]
+        });
+
+        // 3. R序列图
+        const chartLine = echarts.init(document.getElementById('chart-r-line'));
+        charts['rline'] = chartLine;
+        chartLine.setOption({
+            tooltip: { trigger: 'axis' },
+            xAxis: { type: 'category', data: data.r_data.map(x => x.datetime) },
+            yAxis: { name: 'R Value' },
+            series: [{ 
+                type: 'bar', 
+                data: rVals, 
+                itemStyle: { color: (params) => params.value >= 0 ? '#eb4d3d' : '#37b366' } 
+            }]
+        });
+    }
+
+    function renderBalanceChart() {
+        const c = echarts.init(document.getElementById('chart-balance'));
+        charts['balance'] = c;
+        c.setOption({
+            tooltip: { trigger: 'axis' },
+            xAxis: { data: data.daily_data.map(d=>d.date) },
+            yAxis: { scale: true },
+            series: [{ name: 'Balance', type: 'line', data: data.daily_data.map(d=>d.balance), areaStyle: {opacity:0.1}, lineStyle: {width:1} }]
+        });
+    }
+</script>
+</body>
+</html>

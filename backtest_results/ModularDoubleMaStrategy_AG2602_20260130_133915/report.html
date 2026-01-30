@@ -349,7 +349,7 @@ window.onload = function() {
 // P1: 侧边核心指标 (替换为R倍数相关指标)
 const tharpStats = rawData.tharp_stats || {};
 const rMetrics = [
-    ['win_rate', '胜率', '%'],
+    ['win_rate', 'R胜率', '%'],
     ['mean_r', 'R均值', ''],
     ['std_r', 'R标准差', ''],
     ['sqn', 'SQN评分', ''],
@@ -681,7 +681,7 @@ function renderRCharts() {
         const ts = rawData.tharp_stats;
         if(!ts) return;
         const matrix = [
-            ['win_rate', '胜率', '%'],
+            ['win_rate', 'R胜率', '%'],
             ['mean_r', 'R均值', ''],
             ['std_r', 'R标准差', ''],
             ['sqn', 'SQN评分', ''],

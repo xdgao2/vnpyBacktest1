@@ -74,7 +74,7 @@ class ModularDoubleMaStrategy(CtaTemplate):
     def check_entry_condition(self):
         ma_fast = self.am.sma(self.fast_window, array=False)
         ma_slow = self.am.sma(self.slow_window, array=False)
-        if len(ma_fast_array) < 2: return 0
+        # if len(ma_fast_array) < 2: return 0
         ma_fast_array = self.am.sma(self.fast_window, array=True)
         ma_slow_array = self.am.sma(self.slow_window, array=True)
 

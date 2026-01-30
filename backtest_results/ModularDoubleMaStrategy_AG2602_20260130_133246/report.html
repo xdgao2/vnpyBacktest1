@@ -146,7 +146,7 @@
                     </div>
                     <div class="stats-sidebar">
                         <div class="card">
-                            <div class="card-header">Tharp指标</div>
+                            <div class="card-header">核心指标</div>
                             <div id="key-stats-list"></div>
                         </div>
                     </div>
@@ -346,22 +346,15 @@ window.onload = function() {
         });
         matrixContainer.innerHTML = html;
 
-// P1: 侧边核心指标 (替换为R倍数相关指标)
-const tharpStats = rawData.tharp_stats || {};
-const rMetrics = [
-    ['win_rate', '胜率', '%'],
-    ['mean_r', 'R均值', ''],
-    ['std_r', 'R标准差', ''],
-    ['sqn', 'SQN评分', ''],
-    ['total_r', '累计总R', '']
-];
-const keyStatsHtml = rMetrics.map(([key, label, suffix]) => `
-    <div class="key-stat-item">
-        <span class="key-stat-label">${label}</span>
-        <span class="key-stat-val">${Number(tharpStats[key] || 0).toFixed(2)} ${suffix}</span>
-    </div>
-`).join('');
-document.getElementById('key-stats-list').innerHTML = keyStatsHtml;
+        // P1: 侧边核心指标 (取前几个)
+        const keyStatsHtml = metrics.slice(0, 6).map(([key, label, suffix]) => `
+            <div class="key-stat-item">
+                <span class="key-stat-label">${label}</span>
+                <span class="key-stat-val">${Number(stats[key]).toFixed(2)} ${suffix}</span>
+            </div>
+        `).join('');
+        document.getElementById('key-stats-list').innerHTML = keyStatsHtml;
+
         // P6: 日志
         if (rawData.logs) {
             document.getElementById('log-viewer').innerText = rawData.logs.join('\n');
@@ -681,7 +674,7 @@ function renderRCharts() {
         const ts = rawData.tharp_stats;
         if(!ts) return;
         const matrix = [
-            ['win_rate', '胜率', '%'],
+            ['win_rate', 'R胜率', '%'],
             ['mean_r', 'R均值', ''],
             ['std_r', 'R标准差', ''],
             ['sqn', 'SQN评分', ''],

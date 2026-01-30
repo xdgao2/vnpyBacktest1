@@ -120,10 +120,6 @@
                 <div class="overview-grid">
                     <div class="left-charts">
                         <div class="card">
-                            <div class="card-header">统计指标</div>
-                            <div id="stats-matrix" class="stats-matrix"></div>
-                        </div>
-                        <div class="card">
                             <div class="card-header">累计收益</div>
                             <div id="chart-balance" class="chart-box"></div>
                         </div>
@@ -135,18 +131,10 @@
                             <div class="card-header">每日收益率</div>
                             <div id="chart-daily-pnl" class="chart-box" style="height: 200px;"></div>
                         </div>
-                    <div class="card">
-                        <div class="card-header">R倍数分布直方图 (0.5R 间隔)</div>
-                        <div id="chart-r-dist" class="chart-box" style="height: 350px;"></div>
-                    </div>
-                    <div class="card">
-                        <div class="card-header">R倍数序列图</div>
-                        <div id="chart-r-sequence" class="chart-box" style="height: 300px;"></div>
-                    </div>
                     </div>
                     <div class="stats-sidebar">
                         <div class="card">
-                            <div class="card-header">Tharp指标</div>
+                            <div class="card-header">核心指标</div>
                             <div id="key-stats-list"></div>
                         </div>
                     </div>
@@ -168,6 +156,18 @@
             </div>
 
             <div id="p3" class="page">
+                <div class="card">
+                    <div class="card-header">Van Tharp (R倍数) 统计指标</div>
+                    <div id="stats-matrix" class="stats-matrix"></div>
+                </div>
+                <div class="card">
+                    <div class="card-header">R倍数分布直方图 (0.5R 间隔)</div>
+                    <div id="chart-r-dist" class="chart-box" style="height: 350px;"></div>
+                </div>
+                <div class="card">
+                    <div class="card-header">R倍数序列图</div>
+                    <div id="chart-r-sequence" class="chart-box" style="height: 300px;"></div>
+                </div>
             </div>
 
             <div id="p4" class="page">
@@ -247,7 +247,7 @@ window.onload = function() {
     const activePage = document.querySelector('.page.active');
     if (activePage) {
         const pageId = activePage.id;
-        if (pageId === 'p1') renderRCharts();
+        if (pageId === 'p3') renderRCharts();
         if (pageId === 'p5') renderKlineChart();
         if (pageId === 'p4') renderTradesTable();
     }
@@ -270,7 +270,6 @@ window.onload = function() {
         setTimeout(() => {
             Object.values(charts).forEach(c => c.resize());
             if (pageId === 'p5') renderKlineChart(); // 信号图数据量大，按需加载
-                if (pageId === 'p1') renderRCharts(); // R 统计图表
         }, 50);
     }
 
@@ -346,22 +345,15 @@ window.onload = function() {
         });
         matrixContainer.innerHTML = html;
 
-// P1: 侧边核心指标 (替换为R倍数相关指标)
-const tharpStats = rawData.tharp_stats || {};
-const rMetrics = [
-    ['win_rate', '胜率', '%'],
-    ['mean_r', 'R均值', ''],
-    ['std_r', 'R标准差', ''],
-    ['sqn', 'SQN评分', ''],
-    ['total_r', '累计总R', '']
-];
-const keyStatsHtml = rMetrics.map(([key, label, suffix]) => `
-    <div class="key-stat-item">
-        <span class="key-stat-label">${label}</span>
-        <span class="key-stat-val">${Number(tharpStats[key] || 0).toFixed(2)} ${suffix}</span>
-    </div>
-`).join('');
-document.getElementById('key-stats-list').innerHTML = keyStatsHtml;
+        // P1: 侧边核心指标 (取前几个)
+        const keyStatsHtml = metrics.slice(0, 6).map(([key, label, suffix]) => `
+            <div class="key-stat-item">
+                <span class="key-stat-label">${label}</span>
+                <span class="key-stat-val">${Number(stats[key]).toFixed(2)} ${suffix}</span>
+            </div>
+        `).join('');
+        document.getElementById('key-stats-list').innerHTML = keyStatsHtml;
+
         // P6: 日志
         if (rawData.logs) {
             document.getElementById('log-viewer').innerText = rawData.logs.join('\n');
@@ -665,7 +657,7 @@ function renderRCharts() {
         },
         yAxis: { type: 'value' },
         series: [{
-            name: 'R倍数', type: 'bar',
+            name: 'R倍数', type: 'scatter',
             data: rData.map(d => d.r_value),
             itemStyle: {
                 color: function(params) {
@@ -681,13 +673,13 @@ function renderRCharts() {
         const ts = rawData.tharp_stats;
         if(!ts) return;
         const matrix = [
-            ['win_rate', '胜率', '%'],
+            ['win_rate', 'R胜率', '%'],
             ['mean_r', 'R均值', ''],
             ['std_r', 'R标准差', ''],
             ['sqn', 'SQN评分', ''],
             ['total_r', '累计总R', '']
         ];
-        document.getElementById('stats-matrix').innerHTML = matrix.map(([key, label, suffix]) => `
+        document.getElementById('tharp-stats-matrix').innerHTML = matrix.map(([key, label, suffix]) => `
             <div class="matrix-item">
                 <div class="matrix-label">${label}</div>
                 <div class="matrix-val">${Number(ts[key]||0).toFixed(2)} ${suffix}</div>
